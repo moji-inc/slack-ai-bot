@@ -1,0 +1,57 @@
+FROM python:3.11.11-slim-bookworm as builder
+
+# 依存関係のインストール
+COPY requirements.txt requirements-koyeb.txt /build/
+WORKDIR /build/
+RUN pip install -U pip && \
+    pip install -r requirements.txt && \
+    pip install psycopg2-binary
+
+# アプリケーションのセットアップ
+FROM python:3.11.11-slim-bookworm as app
+
+# 必要なパッケージをインストール
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libpq-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/
+
+# アプリケーションファイルのコピー
+COPY *.py /app/
+COPY main_koyeb.py /app/main_koyeb.py
+RUN mkdir -p /app/app/
+COPY app/*.py /app/app/
+
+# ビルダーからPython依存関係をコピー
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+
+# ヘルスチェック用のエンドポイント（オプション）
+EXPOSE 8080
+ENV PORT=8080
+
+# アプリケーションの起動
+CMD ["python", "main_koyeb.py"]
+
+# 使用方法:
+# docker build -f Dockerfile.koyeb -t your-org/chatgpt-in-slack-koyeb .
+# 
+# ローカルでテスト:
+# docker run -e SLACK_APP_TOKEN=xapp-... \
+#            -e SLACK_BOT_TOKEN=xoxb-... \
+#            -e OPENAI_API_KEY=sk-... \
+#            -e DATABASE_URL=postgresql://user:pass@host:port/dbname \
+#            -p 8080:8080 \
+#            your-org/chatgpt-in-slack-koyeb
+#
+# Koyebにデプロイ:
+# 1. Koyebでデータベースを作成（マネージドPostgresを推奨）
+# 2. このイメージをデプロイし、環境変数を設定
+#    - SLACK_APP_TOKEN
+#    - SLACK_BOT_TOKEN
+#    - OPENAI_API_KEY（任意：各ワークスペースで設定可能）
+#    - DATABASE_URL（Koyebマネージドデータベースのパスワード付きURL）
+#    - その他必要な環境変数 
