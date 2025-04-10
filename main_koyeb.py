@@ -36,10 +36,27 @@ from openai import OpenAI
 # データベース接続
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+# インメモリストレージのフォールバック
+in_memory_storage = {}
+
 # データベースのセットアップ
 def setup_database():
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        if not DATABASE_URL:
+            logging.error("DATABASE_URL is not set.")
+            raise Exception("DATABASE_URL environment variable is required")
+            
+        # URLパースを使用して、接続パラメータを明示的に設定
+        params = {
+            "dbname": DATABASE_URL.split("/")[-1],
+            "user": DATABASE_URL.split("://")[1].split(":")[0],
+            "password": DATABASE_URL.split(":")[2].split("@")[0],
+            "host": DATABASE_URL.split("@")[1].split("/")[0],
+            "port": "5432"
+        }
+        
+        logging.info(f"Connecting to database at {params['host']}")
+        conn = psycopg2.connect(**params)
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS openai_configs (
@@ -58,7 +75,20 @@ def setup_database():
 # チームのOpenAI設定を保存
 def save_openai_config(team_id, config):
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        if not DATABASE_URL:
+            logging.error("DATABASE_URL is not set.")
+            return False
+            
+        # URLパースを使用して、接続パラメータを明示的に設定
+        params = {
+            "dbname": DATABASE_URL.split("/")[-1],
+            "user": DATABASE_URL.split("://")[1].split(":")[0],
+            "password": DATABASE_URL.split(":")[2].split("@")[0],
+            "host": DATABASE_URL.split("@")[1].split("/")[0],
+            "port": "5432"
+        }
+        
+        conn = psycopg2.connect(**params)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO openai_configs (team_id, config)
@@ -77,7 +107,20 @@ def save_openai_config(team_id, config):
 # チームのOpenAI設定を取得
 def get_openai_config(team_id):
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        if not DATABASE_URL:
+            logging.error("DATABASE_URL is not set.")
+            return None
+            
+        # URLパースを使用して、接続パラメータを明示的に設定
+        params = {
+            "dbname": DATABASE_URL.split("/")[-1],
+            "user": DATABASE_URL.split("://")[1].split(":")[0],
+            "password": DATABASE_URL.split(":")[2].split("@")[0],
+            "host": DATABASE_URL.split("@")[1].split("/")[0],
+            "port": "5432"
+        }
+        
+        conn = psycopg2.connect(**params)
         cursor = conn.cursor()
         cursor.execute("""
             SELECT config FROM openai_configs
@@ -97,7 +140,20 @@ def get_openai_config(team_id):
 # チームのOpenAI設定を削除
 def delete_openai_config(team_id):
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        if not DATABASE_URL:
+            logging.error("DATABASE_URL is not set.")
+            return False
+            
+        # URLパースを使用して、接続パラメータを明示的に設定
+        params = {
+            "dbname": DATABASE_URL.split("/")[-1],
+            "user": DATABASE_URL.split("://")[1].split(":")[0],
+            "password": DATABASE_URL.split(":")[2].split("@")[0],
+            "host": DATABASE_URL.split("@")[1].split("/")[0],
+            "port": "5432"
+        }
+        
+        conn = psycopg2.connect(**params)
         cursor = conn.cursor()
         cursor.execute("""
             DELETE FROM openai_configs
