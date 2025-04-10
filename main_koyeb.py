@@ -455,6 +455,30 @@ def main():
     register_listeners(app)
     register_revocation_handlers(app)
     
+    # デバッグ用：すべてのメッセージを受信してログに記録
+    @app.message(".*")
+    def debug_message_listener(message, say, logger):
+        logger.info(f"Received message: {message}")
+        # テスト用に応答（本番環境では削除可能）
+        # say("I received your message!")
+    
+    # デバッグ用：メンションへの応答
+    @app.event("app_mention")
+    def debug_mention_listener(event, say, logger):
+        logger.info(f"Received app_mention event: {event}")
+        # テスト応答
+        say(f"こんにちは！メンションありがとうございます。\nI'm here! Thanks for mentioning me. (Debug mode)")
+    
+    # WebSocket接続イベントをログに記録
+    @app.event("hello")
+    def handle_hello(event, logger):
+        logger.info(f"Connected to Slack! Event details: {event}")
+    
+    # アプリがメンションされたときのエラーハンドリング
+    @app.error
+    def global_error_handler(error, logger):
+        logger.error(f"Error occurred: {error}")
+    
     # OpenAI設定のミドルウェア
     @app.middleware
     def set_db_openai_api_key(context: BoltContext, next_):
