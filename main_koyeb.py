@@ -6,6 +6,7 @@ from psycopg2.extras import Json
 from dotenv import load_dotenv
 
 from slack_bolt import App, BoltContext
+from slack_bolt.context.ack import Ack
 from slack_sdk.web import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
