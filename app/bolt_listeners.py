@@ -101,6 +101,8 @@ def respond_to_app_mention(
     logger: logging.Logger,
 ):
     thread_ts = payload.get("thread_ts")
+    # スレッド内のメンションの場合でも処理をスキップしないよう、条件をコメントアウト
+    """
     if thread_ts is not None:
         parent_message = find_parent_message(client, context.channel_id, thread_ts)
         if parent_message is not None and is_this_app_mentioned(
@@ -108,6 +110,9 @@ def respond_to_app_mention(
         ):
             # The message event handler will reply to this
             return
+    """
+    # スレッド内でのメッセージも処理するためにログ記録を追加
+    logger.info(f"Processing app mention: ts={payload.get('ts')}, thread_ts={thread_ts}")
 
     wip_reply = None
     # Replace placeholder for Slack user ID in the system prompt

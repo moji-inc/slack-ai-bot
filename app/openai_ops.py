@@ -5,6 +5,7 @@ import re
 import json
 from typing import List, Dict, Tuple, Optional, Union, Any
 from importlib import import_module
+import inspect
 
 from openai import OpenAI, Stream
 from openai.lib.azure import AzureOpenAI
@@ -43,18 +44,18 @@ from app.openai_constants import (
 )
 from app.slack_ops import update_wip_message
 
-# ----------------------------
-# Internal functions
-# ----------------------------
-
-_prompt_tokens_used_by_function_call_cache: Optional[int] = None
-
+# Try to import tiktoken, set flag based on availability
 try:
     import tiktoken
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
-    # tiktokenがない場合のフォールバック機能
+
+# ----------------------------
+# Internal functions
+# ----------------------------
+
+_prompt_tokens_used_by_function_call_cache: Optional[int] = None
 
 # Format message from Slack to send to OpenAI
 def format_openai_message_content(

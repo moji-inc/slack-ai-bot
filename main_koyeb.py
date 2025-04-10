@@ -463,11 +463,32 @@ def main():
         # say("I received your message!")
     
     # デバッグ用：メンションへの応答
+    # 注: 以下のハンドラはapp/bolt_listeners.pyのregister_listenersで登録されるハンドラと競合するため
+    # コメントアウトしています。スレッド内のメンションが動作しない原因でした。
+    """
     @app.event("app_mention")
     def debug_mention_listener(event, say, logger):
         logger.info(f"Received app_mention event: {event}")
-        # テスト応答
-        say(f"こんにちは！メンションありがとうございます。\nI'm here! Thanks for mentioning me. (Debug mode)")
+        # イベントの詳細をログに記録
+        logger.info(f"Event details - ts: {event.get('ts')}, thread_ts: {event.get('thread_ts')}")
+        
+        # スレッド内のメッセージかどうかを確認し、適切なthreadパラメータを設定
+        thread_ts = event.get("thread_ts", event.get("ts"))
+        
+        # テスト応答（スレッドに返信）
+        say(
+            text=f"こんにちは！メンションありがとうございます。\nI'm here! Thanks for mentioning me. (Debug mode)",
+            thread_ts=thread_ts
+        )
+    """
+    
+    # DMメッセージへの応答
+    @app.event("message")
+    def handle_dm_messages(event, say, logger):
+        # チャンネルタイプがimの場合のみ処理（DMの場合）
+        if event.get("channel_type") == "im":
+            logger.info(f"Received DM: {event}")
+            say("DMを受け取りました！お手伝いできることはありますか？\nI received your DM! How can I help you?")
     
     # WebSocket接続イベントをログに記録
     @app.event("hello")
