@@ -4,6 +4,9 @@ import os
 import psycopg2
 from psycopg2.extras import Json
 from dotenv import load_dotenv
+import threading
+import http.server
+import socketserver
 
 from slack_bolt import App, BoltContext
 from slack_bolt.context.ack import Ack
@@ -358,9 +361,37 @@ def register_revocation_handlers(app: App):
                 f"Failed to delete an OpenAI auth key: (team_id: {context.team_id}, error: {e})"
             )
 
+def run_health_check_server():
+    """ヘルスチェック用の簡易HTTPサーバーを起動"""
+    port = int(os.environ.get("PORT", 8000))
+    
+    class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+            
+        def log_message(self, format, *args):
+            # アクセスログを抑制
+            return
+    
+    try:
+        # TCPサーバーの作成
+        with socketserver.TCPServer(("", port), HealthCheckHandler) as httpd:
+            logging.info(f"Health check server started at port {port}")
+            httpd.serve_forever()
+    except Exception as e:
+        logging.error(f"Failed to start health check server: {e}")
+
 def main():
     # ログの設定（最初に行う）
     logging.basicConfig(format="%(asctime)s %(message)s", level=SLACK_APP_LOG_LEVEL)
+    
+    # ヘルスチェック用のHTTPサーバーをバックグラウンドで起動
+    health_thread = threading.Thread(target=run_health_check_server, daemon=True)
+    health_thread.start()
+    logging.info("Started health check server in background")
     
     # 環境変数のデバッグ（環境変数が設定されているか確認）
     logging.info("Checking environment variables...")
