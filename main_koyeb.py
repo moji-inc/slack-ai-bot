@@ -35,137 +35,282 @@ from openai import OpenAI
 
 # データベース接続
 DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_HOST = os.environ.get("DATABASE_HOST")
+DATABASE_USER = os.environ.get("DATABASE_USER")
+DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD")
+DATABASE_NAME = os.environ.get("DATABASE_NAME")
+DATABASE_PORT = os.environ.get("DATABASE_PORT", "5432")
 
 # インメモリストレージのフォールバック
 in_memory_storage = {}
 
 # データベースのセットアップ
 def setup_database():
+    global in_memory_storage
     try:
-        if not DATABASE_URL:
-            logging.error("DATABASE_URL is not set.")
-            raise Exception("DATABASE_URL environment variable is required")
+        # 個別の環境変数から接続パラメータを構築
+        if not DATABASE_URL and DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+            params = {
+                "host": DATABASE_HOST,
+                "user": DATABASE_USER,
+                "password": DATABASE_PASSWORD,
+                "dbname": DATABASE_NAME,
+                "port": DATABASE_PORT
+            }
+            logging.info(f"Using individual database parameters to connect to {DATABASE_HOST}")
+        elif DATABASE_URL:
+            # URLパースを使用して、接続パラメータを明示的に設定
+            try:
+                params = {
+                    "dbname": DATABASE_URL.split("/")[-1],
+                    "user": DATABASE_URL.split("://")[1].split(":")[0],
+                    "password": DATABASE_URL.split(":")[2].split("@")[0],
+                    "host": DATABASE_URL.split("@")[1].split("/")[0],
+                    "port": "5432"
+                }
+                logging.info(f"Using DATABASE_URL to connect to {params['host']}")
+            except Exception as e:
+                logging.warning(f"Failed to parse DATABASE_URL: {e}")
+                if DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+                    params = {
+                        "host": DATABASE_HOST,
+                        "user": DATABASE_USER,
+                        "password": DATABASE_PASSWORD,
+                        "dbname": DATABASE_NAME,
+                        "port": DATABASE_PORT
+                    }
+                    logging.info(f"Falling back to individual database parameters to connect to {DATABASE_HOST}")
+                else:
+                    logging.warning("No valid database connection information available. Using in-memory storage.")
+                    in_memory_storage = {}
+                    return
+        else:
+            logging.warning("No database connection information available. Using in-memory storage.")
+            in_memory_storage = {}
+            return
             
-        # URLパースを使用して、接続パラメータを明示的に設定
-        params = {
-            "dbname": DATABASE_URL.split("/")[-1],
-            "user": DATABASE_URL.split("://")[1].split(":")[0],
-            "password": DATABASE_URL.split(":")[2].split("@")[0],
-            "host": DATABASE_URL.split("@")[1].split("/")[0],
-            "port": "5432"
-        }
-        
-        logging.info(f"Connecting to database at {params['host']}")
-        conn = psycopg2.connect(**params)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS openai_configs (
-                team_id TEXT PRIMARY KEY,
-                config JSONB NOT NULL
-            )
-        """)
-        conn.commit()
-        cursor.close()
-        conn.close()
-        logging.info("Database setup completed")
+        # データベースに接続
+        try:
+            conn = psycopg2.connect(**params)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS openai_configs (
+                    team_id TEXT PRIMARY KEY,
+                    config JSONB NOT NULL
+                )
+            """)
+            conn.commit()
+            cursor.close()
+            conn.close()
+            logging.info("Database setup completed successfully")
+        except Exception as e:
+            logging.warning(f"Failed to connect to database: {e}")
+            logging.warning("Using in-memory storage as fallback")
+            in_memory_storage = {}
     except Exception as e:
-        logging.error(f"Failed to setup database: {e}")
-        raise
+        logging.warning(f"Failed to setup database: {e}")
+        logging.warning("Using in-memory storage as fallback")
+        in_memory_storage = {}
 
 # チームのOpenAI設定を保存
 def save_openai_config(team_id, config):
+    global in_memory_storage
     try:
-        if not DATABASE_URL:
-            logging.error("DATABASE_URL is not set.")
-            return False
+        # 個別の環境変数から接続パラメータを構築
+        if not DATABASE_URL and DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+            params = {
+                "host": DATABASE_HOST,
+                "user": DATABASE_USER,
+                "password": DATABASE_PASSWORD,
+                "dbname": DATABASE_NAME,
+                "port": DATABASE_PORT
+            }
+        elif DATABASE_URL:
+            # URLパースを使用して、接続パラメータを明示的に設定
+            try:
+                params = {
+                    "dbname": DATABASE_URL.split("/")[-1],
+                    "user": DATABASE_URL.split("://")[1].split(":")[0],
+                    "password": DATABASE_URL.split(":")[2].split("@")[0],
+                    "host": DATABASE_URL.split("@")[1].split("/")[0],
+                    "port": "5432"
+                }
+            except Exception as e:
+                logging.warning(f"Failed to parse DATABASE_URL: {e}")
+                if DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+                    params = {
+                        "host": DATABASE_HOST,
+                        "user": DATABASE_USER,
+                        "password": DATABASE_PASSWORD,
+                        "dbname": DATABASE_NAME,
+                        "port": DATABASE_PORT
+                    }
+                else:
+                    logging.warning("No valid database connection information available. Using in-memory storage.")
+                    in_memory_storage[team_id] = config
+                    return True
+        else:
+            logging.warning("No database connection information available. Using in-memory storage.")
+            in_memory_storage[team_id] = config
+            return True
             
-        # URLパースを使用して、接続パラメータを明示的に設定
-        params = {
-            "dbname": DATABASE_URL.split("/")[-1],
-            "user": DATABASE_URL.split("://")[1].split(":")[0],
-            "password": DATABASE_URL.split(":")[2].split("@")[0],
-            "host": DATABASE_URL.split("@")[1].split("/")[0],
-            "port": "5432"
-        }
-        
-        conn = psycopg2.connect(**params)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO openai_configs (team_id, config)
-            VALUES (%s, %s)
-            ON CONFLICT (team_id) 
-            DO UPDATE SET config = %s
-        """, (team_id, Json(config), Json(config)))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
+        # データベースに接続
+        try:
+            conn = psycopg2.connect(**params)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO openai_configs (team_id, config)
+                VALUES (%s, %s)
+                ON CONFLICT (team_id) 
+                DO UPDATE SET config = %s
+            """, (team_id, Json(config), Json(config)))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        except Exception as e:
+            logging.warning(f"Failed to connect to database: {e}")
+            logging.warning("Using in-memory storage")
+            in_memory_storage[team_id] = config
+            return True
     except Exception as e:
-        logging.error(f"Failed to save OpenAI config: {e}")
-        return False
+        logging.warning(f"Failed to save OpenAI config: {e}")
+        logging.warning("Using in-memory storage")
+        in_memory_storage[team_id] = config
+        return True
 
 # チームのOpenAI設定を取得
 def get_openai_config(team_id):
+    global in_memory_storage
     try:
-        if not DATABASE_URL:
-            logging.error("DATABASE_URL is not set.")
-            return None
+        # 個別の環境変数から接続パラメータを構築
+        if not DATABASE_URL and DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+            params = {
+                "host": DATABASE_HOST,
+                "user": DATABASE_USER,
+                "password": DATABASE_PASSWORD,
+                "dbname": DATABASE_NAME,
+                "port": DATABASE_PORT
+            }
+        elif DATABASE_URL:
+            # URLパースを使用して、接続パラメータを明示的に設定
+            try:
+                params = {
+                    "dbname": DATABASE_URL.split("/")[-1],
+                    "user": DATABASE_URL.split("://")[1].split(":")[0],
+                    "password": DATABASE_URL.split(":")[2].split("@")[0],
+                    "host": DATABASE_URL.split("@")[1].split("/")[0],
+                    "port": "5432"
+                }
+            except Exception as e:
+                logging.warning(f"Failed to parse DATABASE_URL: {e}")
+                if DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+                    params = {
+                        "host": DATABASE_HOST,
+                        "user": DATABASE_USER,
+                        "password": DATABASE_PASSWORD,
+                        "dbname": DATABASE_NAME,
+                        "port": DATABASE_PORT
+                    }
+                else:
+                    logging.warning("No valid database connection information available. Using in-memory storage.")
+                    return in_memory_storage.get(team_id)
+        else:
+            logging.warning("No database connection information available. Using in-memory storage.")
+            return in_memory_storage.get(team_id)
             
-        # URLパースを使用して、接続パラメータを明示的に設定
-        params = {
-            "dbname": DATABASE_URL.split("/")[-1],
-            "user": DATABASE_URL.split("://")[1].split(":")[0],
-            "password": DATABASE_URL.split(":")[2].split("@")[0],
-            "host": DATABASE_URL.split("@")[1].split("/")[0],
-            "port": "5432"
-        }
-        
-        conn = psycopg2.connect(**params)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT config FROM openai_configs
-            WHERE team_id = %s
-        """, (team_id,))
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        
-        if result:
-            return result[0]
-        return None
+        # データベースに接続
+        try:
+            conn = psycopg2.connect(**params)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT config FROM openai_configs
+                WHERE team_id = %s
+            """, (team_id,))
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            
+            if result:
+                return result[0]
+            return None
+        except Exception as e:
+            logging.warning(f"Failed to connect to database: {e}")
+            logging.warning("Using in-memory storage")
+            return in_memory_storage.get(team_id)
     except Exception as e:
-        logging.error(f"Failed to get OpenAI config: {e}")
-        return None
+        logging.warning(f"Failed to get OpenAI config: {e}")
+        logging.warning("Using in-memory storage")
+        return in_memory_storage.get(team_id)
 
 # チームのOpenAI設定を削除
 def delete_openai_config(team_id):
+    global in_memory_storage
     try:
-        if not DATABASE_URL:
-            logging.error("DATABASE_URL is not set.")
-            return False
+        # 個別の環境変数から接続パラメータを構築
+        if not DATABASE_URL and DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+            params = {
+                "host": DATABASE_HOST,
+                "user": DATABASE_USER,
+                "password": DATABASE_PASSWORD,
+                "dbname": DATABASE_NAME,
+                "port": DATABASE_PORT
+            }
+        elif DATABASE_URL:
+            # URLパースを使用して、接続パラメータを明示的に設定
+            try:
+                params = {
+                    "dbname": DATABASE_URL.split("/")[-1],
+                    "user": DATABASE_URL.split("://")[1].split(":")[0],
+                    "password": DATABASE_URL.split(":")[2].split("@")[0],
+                    "host": DATABASE_URL.split("@")[1].split("/")[0],
+                    "port": "5432"
+                }
+            except Exception as e:
+                logging.warning(f"Failed to parse DATABASE_URL: {e}")
+                if DATABASE_HOST and DATABASE_USER and DATABASE_PASSWORD and DATABASE_NAME:
+                    params = {
+                        "host": DATABASE_HOST,
+                        "user": DATABASE_USER,
+                        "password": DATABASE_PASSWORD,
+                        "dbname": DATABASE_NAME,
+                        "port": DATABASE_PORT
+                    }
+                else:
+                    logging.warning("No valid database connection information available. Using in-memory storage.")
+                    if team_id in in_memory_storage:
+                        del in_memory_storage[team_id]
+                    return True
+        else:
+            logging.warning("No database connection information available. Using in-memory storage.")
+            if team_id in in_memory_storage:
+                del in_memory_storage[team_id]
+            return True
             
-        # URLパースを使用して、接続パラメータを明示的に設定
-        params = {
-            "dbname": DATABASE_URL.split("/")[-1],
-            "user": DATABASE_URL.split("://")[1].split(":")[0],
-            "password": DATABASE_URL.split(":")[2].split("@")[0],
-            "host": DATABASE_URL.split("@")[1].split("/")[0],
-            "port": "5432"
-        }
-        
-        conn = psycopg2.connect(**params)
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM openai_configs
-            WHERE team_id = %s
-        """, (team_id,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
+        # データベースに接続
+        try:
+            conn = psycopg2.connect(**params)
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM openai_configs
+                WHERE team_id = %s
+            """, (team_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+        except Exception as e:
+            logging.warning(f"Failed to connect to database: {e}")
+            logging.warning("Using in-memory storage")
+            if team_id in in_memory_storage:
+                del in_memory_storage[team_id]
+            return True
     except Exception as e:
-        logging.error(f"Failed to delete OpenAI config: {e}")
-        return False
+        logging.warning(f"Failed to delete OpenAI config: {e}")
+        logging.warning("Using in-memory storage")
+        if team_id in in_memory_storage:
+            del in_memory_storage[team_id]
+        return True
 
 def register_revocation_handlers(app: App):
     # アンインストールイベントとトークン取り消しを処理
