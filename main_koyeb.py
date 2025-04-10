@@ -358,22 +358,66 @@ def register_revocation_handlers(app: App):
             )
 
 def main():
+    # ログの設定（最初に行う）
+    logging.basicConfig(format="%(asctime)s %(message)s", level=SLACK_APP_LOG_LEVEL)
+    
+    # 環境変数のデバッグ（環境変数が設定されているか確認）
+    logging.info("Checking environment variables...")
+    env_keys = [key for key in os.environ.keys() if not key.startswith("PATH") and not key.startswith("LD_")]
+    logging.info(f"Available environment variables: {', '.join(env_keys)}")
+    
     # 環境変数の読み込み
-    load_dotenv()
+    try:
+        load_dotenv()
+        logging.info("Loaded environment variables from .env file (if exists)")
+    except Exception as e:
+        logging.warning(f"Failed to load .env file: {e}, continuing with system environment variables")
+    
+    # 環境変数のチェック
+    required_env_vars = ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]
+    missing_vars = [var for var in required_env_vars if not os.environ.get(var)]
+    
+    # 環境変数の値を確認（セキュリティのため一部を隠す）
+    for var in required_env_vars:
+        value = os.environ.get(var, "NOT_SET")
+        if value != "NOT_SET":
+            # セキュリティのため、トークンの最初と最後の数文字だけを表示
+            masked_value = value[:4] + "..." + value[-4:] if len(value) > 8 else "***"
+            logging.info(f"Environment variable {var} is set: {masked_value}")
+        else:
+            logging.error(f"Environment variable {var} is NOT set")
+    
+    if missing_vars:
+        logging.error(f"Missing required environment variables: {', '.join(missing_vars)}")
+        logging.error("Please set these environment variables in Koyeb")
+        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
     
     # データベースのセットアップ
     setup_database()
     
-    # ログの設定
-    logging.basicConfig(format="%(asctime)s %(message)s", level=SLACK_APP_LOG_LEVEL)
-    
     # アプリの初期化
-    app = App(
-        token=os.environ["SLACK_BOT_TOKEN"],
-        before_authorize=before_authorize,
-        process_before_response=True,
-    )
-    app.client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=2))
+    try:
+        # 直接環境変数から値を取得してログに出力（デバッグ用）
+        slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
+        if not slack_bot_token:
+            logging.error("SLACK_BOT_TOKEN is still not available even after checks")
+            # 緊急対応として環境変数を直接設定
+            os.environ["SLACK_BOT_TOKEN"] = os.environ.get("SLACK_BOT_TOKEN_FALLBACK", "")
+            slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
+            if slack_bot_token:
+                logging.info("Using SLACK_BOT_TOKEN_FALLBACK as SLACK_BOT_TOKEN")
+        
+        app = App(
+            token=os.environ["SLACK_BOT_TOKEN"],
+            before_authorize=before_authorize,
+            process_before_response=True,
+        )
+        app.client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=2))
+    except KeyError as e:
+        logging.error(f"Failed to initialize Slack app due to missing environment variable: {e}")
+        # 環境変数のキーを全て出力（デバッグ用）
+        logging.error(f"Available environment keys: {list(os.environ.keys())}")
+        raise
     
     # リスナーの登録
     register_listeners(app)
