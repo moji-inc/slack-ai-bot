@@ -3,13 +3,12 @@ import threading
 import time
 import re
 import json
-from typing import List, Dict, Tuple, Optional, Union
+from typing import List, Dict, Tuple, Optional, Union, Any
 from importlib import import_module
 
 from openai import OpenAI, Stream
 from openai.lib.azure import AzureOpenAI
 from openai.types import Completion
-import tiktoken
 
 from slack_bolt import BoltContext
 from slack_sdk.web import WebClient, SlackResponse
@@ -50,6 +49,12 @@ from app.slack_ops import update_wip_message
 
 _prompt_tokens_used_by_function_call_cache: Optional[int] = None
 
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+    # tiktokenがない場合のフォールバック機能
 
 # Format message from Slack to send to OpenAI
 def format_openai_message_content(
@@ -75,7 +80,7 @@ def messages_within_context_window(
 ) -> Tuple[List[Dict[str, Union[str, Dict[str, str]]]], int, int]:
     # Remove old messages to make sure we have room for max_tokens
     # See also: https://platform.openai.com/docs/guides/chat/introduction
-    # > total tokens must be below the model’s maximum limit (e.g., 4096 tokens for gpt-3.5-turbo-0301)
+    # > total tokens must be below the model's maximum limit (e.g., 4096 tokens for gpt-3.5-turbo-0301)
     max_context_tokens = context_length(context.get("OPENAI_MODEL")) - MAX_TOKENS - 1
     if context.get("OPENAI_FUNCTION_CALL_MODULE_NAME") is not None:
         max_context_tokens -= calculate_tokens_necessary_for_function_call(context)
@@ -374,8 +379,22 @@ def context_length(
 
 def encode_and_count_tokens(
     value: Union[str, List[Dict[str, Union[str, Dict[str, str]]]], Dict[str, str]],
-    encoding: tiktoken.Encoding,
+    encoding: Optional[Any] = None,
 ) -> int:
+    if not TIKTOKEN_AVAILABLE:
+        # tiktokenがない場合は簡易的なトークン数を返す
+        if isinstance(value, str):
+            return len(value.split()) * 1.3  # 簡易的な見積もり
+        elif isinstance(value, list):
+            return sum(encode_and_count_tokens(item) for item in value)
+        elif isinstance(value, dict):
+            return sum(
+                encode_and_count_tokens(v)
+                for k, v in value.items()
+                if k != "image_url"
+            )
+        return 0
+    
     if isinstance(value, str):
         return len(encoding.encode(value))
     elif isinstance(value, list):
@@ -397,6 +416,14 @@ def calculate_num_tokens(
     model: str = GPT_3_5_TURBO_0613_MODEL,
 ) -> int:
     """Returns the number of tokens used by a list of messages."""
+    if not TIKTOKEN_AVAILABLE:
+        # tiktokenがない場合は簡易的なトークン数を返す
+        total_tokens = 0
+        for message in messages:
+            if isinstance(message.get("content"), str):
+                total_tokens += len(message["content"].split()) * 1.3
+        return int(total_tokens)
+    
     try:
         encoding = tiktoken.encoding_for_model(model)
     except KeyError:
